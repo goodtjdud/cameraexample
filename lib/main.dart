@@ -39,32 +39,83 @@ class TakePictureScreen extends StatefulWidget {
   TakePictureScreenState createState() => TakePictureScreenState();
 }
 
-class TakePictureScreenState extends State<TakePictureScreen> {
-  late CameraController _controller;
-  late Future<void> _initializeControllerFuture;
+class TakePictureScreenState extends State<TakePictureScreen>
+    with WidgetsBindingObserver {
+  CameraController? _controller;
+  bool active = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // To display the current output from the Camera,
     // create a CameraController.
-    _controller = CameraController(
-      // Get a specific camera from the list of available cameras.
-      widget.camera,
-      // Define the resolution to use.
-      ResolutionPreset.medium,
-    );
-
-    // Next, initialize the controller. This returns a Future.
-    _initializeControllerFuture = _controller.initialize();
+    _initCamera();
   }
 
   @override
   void dispose() {
     // Dispose of the controller when the widget is disposed.
-    _controller.dispose();
+    _controller?.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+
   }
+
+  @override
+  Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state == AppLifecycleState.resumed) {
+      _initCamera();
+      print("Resumed");
+    }
+    // else if (state == AppLifecycleState.inactive) {
+    //   active = false;
+    //   print("Inactive");
+    // } else if (state == AppLifecycleState.detached) {
+    //   print ("Detached");
+    // }
+    else if (state == AppLifecycleState.paused) {
+      _controller?.dispose();
+      print("Paused");
+    }
+  }
+
+  _initCamera() {
+    Future.delayed(Duration(milliseconds: 300)).then((value) {
+      availableCameras().then((value) async{
+        if (!mounted) {
+          return;
+        }
+        if (value.isEmpty) {
+          setState(() {
+            active = false;
+          });
+          return;
+        }
+        await _setupCamera(value);
+      });
+    });
+  }
+
+  _setupCamera (List<CameraDescription> value) async {
+    try {
+      final cameraController = CameraController(value[0], ResolutionPreset.medium);
+      cameraController.addListener(() {});
+      _controller = cameraController;
+
+      await _controller?.initialize();
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+    } catch (e) {
+      setState(() {
+        active = false;
+      });
+      print("Failed to create camera with $e");
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -74,11 +125,11 @@ class TakePictureScreenState extends State<TakePictureScreen> {
       // camera preview. Use a FutureBuilder to display a loading spinner until the
       // controller has finished initializing.
       body: FutureBuilder<void>(
-        future: _initializeControllerFuture,
+        future: _controller?.initialize(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             // If the Future is complete, display the preview.
-            return CameraPreview(_controller);
+            return CameraPreview(_controller!);
           } else {
             // Otherwise, display a loading indicator.
             return const Center(child: CircularProgressIndicator());
@@ -87,16 +138,14 @@ class TakePictureScreenState extends State<TakePictureScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         // Provide an onPressed callback.
-        onPressed: () async {
-          // Take the Picture in a try / catch block. If anything goes wrong,
-          // catch the error.
+        onPressed: () async{
           try {
+            await _controller?.initialize();
             // Ensure that the camera is initialized.
-            await _initializeControllerFuture;
 
             // Attempt to take a picture and get the file `image`
             // where it was saved.
-            final image = await _controller.takePicture();
+            final image = await _controller?.takePicture();
 
             if (!mounted) return;
 
@@ -106,7 +155,7 @@ class TakePictureScreenState extends State<TakePictureScreen> {
                 builder: (context) => DisplayPictureScreen(
                   // Pass the automatically generated path to
                   // the DisplayPictureScreen widget.
-                  imagePath: image.path,
+                  imagePath: image!.path,
                 ),
               ),
             );
